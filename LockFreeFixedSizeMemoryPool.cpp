@@ -4,9 +4,12 @@
 #include <new>          // placement new
 #include <type_traits>  // std::aligned_storage
 #include <cassert>      // assert
+#include <array>        // std::array
+#include <iostream>     // std::cout
+#include <thread>       // std::thread::id
+#include <unordered_map> // std::unordered_map
 
 // ========== Cache Line Alignment ========== //
-// Use hardware-specific cache line size if available (C++17+)
 #ifndef hardware_destructive_interference_size
     #define hardware_destructive_interference_size 64  // 64-byte cache line for modern CPUs
 #endif
@@ -16,8 +19,8 @@ constexpr static std::size_t CACHE_LINE_SIZE = hardware_destructive_interference
 /**
  * @brief Ultra-low-latency lock-free memory pool for fixed-size objects.
  * 
- * This memory pool is preallocated, lock-free, and cache-line optimized.
- * It is designed for HFT or real-time systems where allocation speed and
+ * This memory pool is **preallocated, lock-free, and cache-line optimized**.
+ * Designed for **HFT or real-time systems**, where allocation speed and
  * cache behavior are critical.
  * 
  * @tparam T Type of object to allocate
@@ -26,78 +29,88 @@ constexpr static std::size_t CACHE_LINE_SIZE = hardware_destructive_interference
 template<typename T, std::size_t N>
 class LockFreeFixedSizeMemoryPool {
 private:
-    // Internal free list node structure (same size as T)
     struct FreeNode {
         FreeNode* next;
     };
 
-    /**
-     * @brief Memory buffer to hold N elements of type T
-     * Each element is aligned to CACHE_LINE_SIZE to avoid false sharing
-     */
-    alignas(CACHE_LINE_SIZE)
-    //alignas(alignof(T)) 
-    std::byte buffer[sizeof(T)*N]; 
+    alignas(CACHE_LINE_SIZE) std::array<std::byte, sizeof(T) * N> buffer;
 
-    //freeList stores always Head of the lock-free free list
     std::atomic<FreeNode*> freeList;
 
+    // ========== Thread-Local Caching ========== //
+    thread_local static std::unordered_map<std::thread::id, FreeNode*> localCache;
+
 public:
-    /**
-     * @brief Constructor initializes the free list by linking all blocks
-     */
     LockFreeFixedSizeMemoryPool() noexcept {
         FreeNode* head = nullptr;
-
-        // Link all blocks into the free list (in reverse order)
         for (std::size_t i = 0; i < N; ++i) {
-            auto* node = reinterpret_cast<FreeNode*>(&buffer[i*sizeof(T)]);
+            auto* node = reinterpret_cast<FreeNode*>(&buffer[i * sizeof(T)]);
             node->next = head;
             head = node;
         }
-
         freeList.store(head, std::memory_order_release);
     }
 
     /**
-     * @brief Allocates a block of memory for one object
-     * @return Pointer to uninitialized memory, or nullptr if pool exhausted
+     * @brief Allocates memory for one object.
+     * @return Pointer to uninitialized memory.
+     * 
+     * Uses **thread-local cache** for faster allocations.
+     * If exhausted, falls back to **dynamic memory allocation**.
      */
     T* allocate() noexcept {
+        auto threadID = std::this_thread::get_id();
+        if (localCache[threadID]) {
+            FreeNode* cached = localCache[threadID];
+            localCache[threadID] = cached->next;
+            return reinterpret_cast<T*>(cached);
+        }
+
         FreeNode* head = freeList.load(std::memory_order_acquire);
         while (head) {
             FreeNode* next = head->next;
-
             if (freeList.compare_exchange_weak(head, next, std::memory_order_acq_rel)) {
                 return reinterpret_cast<T*>(head);
             }
         }
 
-        return nullptr; // Pool is exhausted
+        // ========= Fallback: Dynamic Allocation ========= //
+        std::cerr << "Memory pool exhausted! Falling back to dynamic allocation.\n";
+        return reinterpret_cast<T*>(new std::byte[sizeof(T)]);
     }
 
     /**
-     * @brief Returns a previously allocated block back to the pool
-     * @param ptr Pointer to object previously returned by allocate()
+     * @brief Deallocates memory, returning it back to the pool.
+     * @param ptr Pointer to memory previously allocated by `allocate()`.
+     * 
+     * **Handles dynamically allocated fallback memory separately**.
      */
     void deallocate(T* ptr) noexcept {
-        auto* node = reinterpret_cast<FreeNode*>(ptr);
-        FreeNode* head = freeList.load(std::memory_order_acquire);
+        if (!ptr) return;
 
-        do {
-            node->next = head;
-        } while (! freeList.compare_exchange_weak(head, node, std::memory_order_acq_rel));
+        // Check if memory came from the fallback dynamic allocation
+        if (reinterpret_cast<std::byte*>(ptr) < buffer.data() ||
+            reinterpret_cast<std::byte*>(ptr) >= buffer.data() + buffer.size()) {
+            delete[] reinterpret_cast<std::byte*>(ptr);  // Clean up fallback allocation
+            return;
+        }
+
+        // Return object to thread-local cache for faster reuse
+        auto threadID = std::this_thread::get_id();
+        auto* node = reinterpret_cast<FreeNode*>(ptr);
+        node->next = localCache[threadID];
+        localCache[threadID] = node;
     }
 
-    // Prevent accidental copies
     LockFreeFixedSizeMemoryPool(const LockFreeFixedSizeMemoryPool&) = delete;
     LockFreeFixedSizeMemoryPool& operator=(const LockFreeFixedSizeMemoryPool&) = delete;
-
 };
 
-/*************Usage Example**************/
+template<typename T, std::size_t N>
+thread_local std::unordered_map<std::thread::id, typename LockFreeFixedSizeMemoryPool<T, N>::FreeNode*> LockFreeFixedSizeMemoryPool<T, N>::localCache;
 
-// Your aligned object for HFT (e.g., Order)
+/************* Usage Example **************/
+
 struct alignas(CACHE_LINE_SIZE) Order {
     uint64_t id;
     double price;
@@ -105,30 +118,45 @@ struct alignas(CACHE_LINE_SIZE) Order {
 
     Order(uint64_t id_, double price_, int qty_)
         : id(id_), price(price_), quantity(qty_) {}
+
+    void print() const {
+        std::cout << "Order ID: " << id
+                  << ", Price: " << price
+                  << ", Qty: " << quantity << "\n";
+    }
 };
 
-
 int main() {
-    // Step 1: Create memory pool with capacity for 1024 Orders
-    LockFreeFixedSizeMemoryPool <Order, 1024> pool;
+    try {
+        LockFreeFixedSizeMemoryPool<Order, 1024> pool;
 
-    // Step 2: Allocate raw memory for one Order object
-    Order* order = pool.allocate();
-    assert(order != nullptr && "Pool exhausted");
+        Order* order1 = pool.allocate();
+        new (order1) Order(1001, 99.95, 200);
+        order1->print();
 
-    // Step 3: Construct the object in-place using placement new
-    new (order) Order(1001, 99.95, 200);
+        Order* order2 = pool.allocate();
+        new (order2) Order(1002, 101.25, 150);
+        order2->print();
 
-    // Step 4: Use the object
-    std::cout << "Order ID: " << order->id
-              << ", Price: " << order->price
-              << ", Qty: " << order->quantity << "\n";
+        order1->~Order();
+        pool.deallocate(order1);
 
-    // Step 5: Explicitly destroy the object
-    order->~Order();
+        order2->~Order();
+        pool.deallocate(order2);
 
-    // Step 6: Return memory to the pool
-    pool.deallocate(order);
+        // **Stress test exhaustion**
+        for (int i = 0; i < 1100; ++i) {
+            Order* order = pool.allocate();
+            new (order) Order(i, 100.0 + i, i * 10);
+            order->print();
+            order->~Order();
+            pool.deallocate(order);
+        }
+
+    } catch (const std::bad_alloc& e) {
+        std::cerr << "Fatal memory allocation failure: " << e.what() << "\n";
+        return -1;
+    }
 
     return 0;
 }
