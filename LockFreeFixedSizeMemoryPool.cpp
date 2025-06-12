@@ -38,13 +38,18 @@ private:
     std::atomic<FreeNode*> freeList;
 
     // ========== Thread-Local Caching ========== //
-    thread_local static std::unordered_map<std::thread::id, FreeNode*> localCache;
+    thread_local static FreeNode* localCacheHead; 
+
 
 public:
-    LockFreeFixedSizeMemoryPool() noexcept {
+    constexper LockFreeFixedSizeMemoryPool() noexcept {
         FreeNode* head = nullptr;
-        for (std::size_t i = 0; i < N; ++i) {
-            auto* node = reinterpret_cast<FreeNode*>(&buffer[i * sizeof(T)]);
+        //Optimize Free List Initialization**
+        //Reverse-order linking is fine, but forward linking might improve cache locality:
+        //for (std::size_t i = 0; i < N; ++i) {
+            //auto* node = reinterpret_cast<FreeNode*>(&buffer[i * sizeof(T)]);
+        for (std::size_t i = N; i > 0; --i) {
+            auto* node = reinterpret_cast<FreeNode*>(&buffer[(i-1)*sizeof(T)]);
             node->next = head;
             head = node;
         }
@@ -59,11 +64,10 @@ public:
      * If exhausted, falls back to **dynamic memory allocation**.
      */
     T* allocate() noexcept {
-        auto threadID = std::this_thread::get_id();
-        if (localCache[threadID]) {
-            FreeNode* cached = localCache[threadID];
-            localCache[threadID] = cached->next;
-            return reinterpret_cast<T*>(cached);
+        if (localCacheHead) {
+           FreeNode* cached = localCacheHead;
+           localCacheHead = cached->next;
+           return reinterpret_cast<T*>(cached);
         }
 
         FreeNode* head = freeList.load(std::memory_order_acquire);
@@ -96,10 +100,9 @@ public:
         }
 
         // Return object to thread-local cache for faster reuse
-        auto threadID = std::this_thread::get_id();
         auto* node = reinterpret_cast<FreeNode*>(ptr);
-        node->next = localCache[threadID];
-        localCache[threadID] = node;
+         node->next = localCacheHead;
+         localCacheHead = node;
     }
 
     LockFreeFixedSizeMemoryPool(const LockFreeFixedSizeMemoryPool&) = delete;
