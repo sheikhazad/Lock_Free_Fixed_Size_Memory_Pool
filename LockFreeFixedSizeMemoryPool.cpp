@@ -11,7 +11,7 @@
     #define hardware_destructive_interference_size 64  // 64-byte cache line for modern CPUs
 #endif
 
-constexpr std::size_t CACHE_LINE_SIZE = hardware_destructive_interference_size;
+constexpr static std::size_t CACHE_LINE_SIZE = hardware_destructive_interference_size;
 
 /**
  * @brief Ultra-low-latency lock-free memory pool for fixed-size objects.
