@@ -32,7 +32,8 @@ private:
         FreeNode* next;
     };
 
-    alignas(CACHE_LINE_SIZE) std::byte buffer[N * sizeof(T)];
+    //alignas(CACHE_LINE_SIZE) std::byte buffer[N * sizeof(T)];
+    std::byte* buffer; //To create in heap always 
     //If freeList is accessed heavily, align it to CACHE_LINE_SIZE to avoid contention:
     alignas(CACHE_LINE_SIZE) std::atomic<FreeNode*> freeList;
 
@@ -42,7 +43,13 @@ private:
 
 public:
       LockFreeFixedSizeMemoryPool() noexcept {
-        FreeNode* head = nullptr;
+         //aligned_alloc() to ensure cacheline alignment
+         buffer = static_cast<std::byte*>(std::aligned_alloc(CACHE_LINE_SIZE, N * sizeof(T)));
+         if (!buffer) {
+            throw std::bad_alloc();
+         }
+
+         FreeNode* head = nullptr;
         //Optimize Free List Initialization**
         //Reverse-order linking is fine, but forward linking might improve cache locality:
         //for (std::size_t i = 0; i < N; ++i) {
@@ -105,6 +112,10 @@ public:
         auto* node = reinterpret_cast<FreeNode*>(ptr);
          node->next = localCacheHead;
          localCacheHead = node;
+    }
+  
+    ~LockFreeFixedSizeMemoryPool() {
+       std::free(buffer);  
     }
 
     LockFreeFixedSizeMemoryPool(const LockFreeFixedSizeMemoryPool&) = delete;
