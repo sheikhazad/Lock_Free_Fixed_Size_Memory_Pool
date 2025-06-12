@@ -41,7 +41,7 @@ private:
 
 
 public:
-    constexper LockFreeFixedSizeMemoryPool() noexcept {
+    constexpr LockFreeFixedSizeMemoryPool() noexcept {
         FreeNode* head = nullptr;
         //Optimize Free List Initialization**
         //Reverse-order linking is fine, but forward linking might improve cache locality:
