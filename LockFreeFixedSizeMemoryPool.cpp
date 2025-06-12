@@ -78,6 +78,8 @@ public:
         }
 
         // ========= Fallback: Dynamic Allocation ========= //
+        //TODO: Dynamic memory allication at hot path is not exoected for low latency. 
+        //Its just for demo purpose 
         std::cerr << "Memory pool exhausted! Falling back to dynamic allocation.\n";
         return reinterpret_cast<T*>(new std::byte[sizeof(T)]);
     }
@@ -92,6 +94,7 @@ public:
         if (!ptr) return;
 
         // Check if memory came from the fallback dynamic allocation
+        //TODO: Needs to handle thread safety worhout lock
         if (reinterpret_cast<std::byte*>(ptr) < buffer.data() ||
             reinterpret_cast<std::byte*>(ptr) >= buffer.data() + buffer.size()) {
             delete[] reinterpret_cast<std::byte*>(ptr);  // Clean up fallback allocation
