@@ -7,7 +7,6 @@
 #include <array>        // std::array
 #include <iostream>     // std::cout
 #include <thread>       // std::thread::id
-#include <unordered_map> // std::unordered_map
 
 // ========== Cache Line Alignment ========== //
 #ifndef hardware_destructive_interference_size
@@ -38,7 +37,7 @@ private:
     alignas(CACHE_LINE_SIZE) std::atomic<FreeNode*> freeList;
 
     // ========== Thread-Local Caching ========== //
-    thread_local static FreeNode* localCacheHead; 
+    thread_local FreeNode* localCacheHead = nullptr; 
 
 
 public:
