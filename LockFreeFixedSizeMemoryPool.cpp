@@ -34,8 +34,8 @@ private:
     };
 
     alignas(CACHE_LINE_SIZE) std::array<std::byte, sizeof(T) * N> buffer;
-
-    std::atomic<FreeNode*> freeList;
+    //If freeList is accessed heavily, align it to CACHE_LINE_SIZE to avoid contention:
+    alignas(CACHE_LINE_SIZE) std::atomic<FreeNode*> freeList;
 
     // ========== Thread-Local Caching ========== //
     thread_local static FreeNode* localCacheHead; 
