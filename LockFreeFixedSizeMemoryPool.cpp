@@ -36,7 +36,8 @@ private:
      * Each element is aligned to CACHE_LINE_SIZE to avoid false sharing
      */
     alignas(CACHE_LINE_SIZE)
-    T buffer[N];
+    //alignas(alignof(T)) 
+    std::byte buffer[sizeof(T)*N]; 
 
     //freeList stores always Head of the lock-free free list
     std::atomic<FreeNode*> freeList;
@@ -50,7 +51,7 @@ public:
 
         // Link all blocks into the free list (in reverse order)
         for (std::size_t i = 0; i < N; ++i) {
-            auto* node = reinterpret_cast<FreeNode*>(&buffer[i]);
+            auto* node = reinterpret_cast<FreeNode*>(&buffer[i*sizeof(T)]);
             node->next = head;
             head = node;
         }
