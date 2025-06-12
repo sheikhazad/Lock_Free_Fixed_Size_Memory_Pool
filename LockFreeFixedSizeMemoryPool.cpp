@@ -37,7 +37,7 @@ private:
     alignas(CACHE_LINE_SIZE) std::atomic<FreeNode*> freeList;
 
     // ========== Thread-Local Caching ========== //
-    thread_local FreeNode* localCacheHead = nullptr; 
+    static thread_local FreeNode* localCacheHead = nullptr; 
 
 
 public:
@@ -109,7 +109,7 @@ public:
 };
 
 template<typename T, std::size_t N>
-thread_local std::unordered_map<std::thread::id, typename LockFreeFixedSizeMemoryPool<T, N>::FreeNode*> LockFreeFixedSizeMemoryPool<T, N>::localCache;
+thread_local typename LockFreeFixedSizeMemoryPool<T, N>::FreeNode* LockFreeFixedSizeMemoryPool<T, N>::localCacheHead = nullptr;
 
 /************* Usage Example **************/
 
