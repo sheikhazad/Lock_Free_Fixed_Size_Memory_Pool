@@ -32,7 +32,7 @@ private:
         FreeNode* next;
     };
 
-    alignas(CACHE_LINE_SIZE) std::array<std::byte, sizeof(T) * N> buffer;
+    alignas(CACHE_LINE_SIZE) std::byte buffer[N * sizeof(T)];
     //If freeList is accessed heavily, align it to CACHE_LINE_SIZE to avoid contention:
     alignas(CACHE_LINE_SIZE) std::atomic<FreeNode*> freeList;
 
