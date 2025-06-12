@@ -37,11 +37,11 @@ private:
     alignas(CACHE_LINE_SIZE) std::atomic<FreeNode*> freeList;
 
     // ========== Thread-Local Caching ========== //
-    static thread_local FreeNode* localCacheHead = nullptr; 
+    static thread_local FreeNode* localCacheHead; 
 
 
 public:
-    constexpr LockFreeFixedSizeMemoryPool() noexcept {
+      LockFreeFixedSizeMemoryPool() noexcept {
         FreeNode* head = nullptr;
         //Optimize Free List Initialization**
         //Reverse-order linking is fine, but forward linking might improve cache locality:
