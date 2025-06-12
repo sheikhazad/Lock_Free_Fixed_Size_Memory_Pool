@@ -33,7 +33,6 @@ private:
 
     /**
      * @brief Memory buffer to hold N elements of type T
-     * 
      * Each element is aligned to CACHE_LINE_SIZE to avoid false sharing
      */
     alignas(CACHE_LINE_SIZE)
@@ -61,7 +60,6 @@ public:
 
     /**
      * @brief Allocates a block of memory for one object
-     * 
      * @return Pointer to uninitialized memory, or nullptr if pool exhausted
      */
     T* allocate() noexcept {
@@ -79,7 +77,6 @@ public:
 
     /**
      * @brief Returns a previously allocated block back to the pool
-     * 
      * @param ptr Pointer to object previously returned by allocate()
      */
     void deallocate(T* ptr) noexcept {
